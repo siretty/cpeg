@@ -1,5 +1,5 @@
-#include "cp_ins.h"
-#include "cp_byteset.h"
+#include "cp_vm.h"
+
 #include "cp_stack.h"
 
 #include <assert.h>
@@ -232,8 +232,6 @@ bool cp_vm_ins_return( struct cp_vm *s ) {
 }
 
 
-#include <stdio.h>
-
 struct {
   const char *name;
 }
@@ -255,15 +253,57 @@ ins_desc[256] = {
 };
 
 
+struct cp_vm * cp_vm_create( ) {
+  struct cp_vm *s = malloc( sizeof( struct cp_vm ) );
+
+  s->ib = NULL;
+  s->ib_size = 0;
+  s->bb = NULL;
+  s->bb_size = 0;
+  s->sub = NULL;
+  s->sub_size = 0;
+  
+  st_reta_init( & s->reta, 128 );
+  st_back_init( & s->back, 128 );
+
+  return s;
+}
+
+void cp_vm_destroy( struct cp_vm *s ) {
+  st_back_free( & s->back );
+  st_reta_free( & s->reta );
+
+  free( s );
+}
+
+void cp_vm_set_pattern( struct cp_vm *s,
+    struct cp_ins *ib, size_t ib_size,
+    struct cp_byteset *bb, size_t bb_size )
+{
+  assert( s ); assert( ib ); assert( ib_size > 0 );
+
+  s->ib = ib;
+  s->ib_size = ib_size;
+  s->bb = bb;
+  s->bb_size = bb_size;
+}
+
+void cp_vm_set_subject( struct cp_vm *s, const char *sub, size_t sub_size ) {
+  assert( s ); assert( sub );
+
+  s->sub = sub;
+  s->sub_size = sub_size;
+}
+
+
 bool cp_vm_run( struct cp_vm *s ) {
   assert( s );
+  assert( s->sub );
+  assert( s->ib ); assert( s->ib_size > 0 );
 
   s->fail = false;
   s->ins_idx = 0;
   s->sub_idx = 0;
-
-  st_reta_init( & s->reta, 128 );
-  st_back_init( & s->back, 128 );
 
   bool run = true;
 
@@ -310,9 +350,9 @@ bool cp_vm_run( struct cp_vm *s ) {
     }
 
 #ifdef DEBUG
-    cp_debug( "INS %s (%hhx) \tI:%03zu S:%03zu -> I:%03zu S:%03zu %c\n",
-        ins_desc[dbg_ins.code].name, dbg_ins.code, dbg_ins_idx_old,
-        dbg_sub_idx_old, s->ins_idx, s->sub_idx, s->fail ? 'F' : ' ' );
+    cp_debug( "INS I:%03zu S:%03zu -> I:%03zu S:%03zu %c %10s (%hhx)\n",
+        dbg_ins_idx_old, dbg_sub_idx_old, s->ins_idx, s->sub_idx,
+        s->fail ? 'F' : ' ', ins_desc[dbg_ins.code].name, dbg_ins.code );
 #endif
     
     if( s->fail ) {
@@ -325,6 +365,8 @@ bool cp_vm_run( struct cp_vm *s ) {
 }
 
 
+#include <stdio.h>
+
 #ifdef DEBUG
 static void cp_debug( const char *fmt, ... )
 {
@@ -336,87 +378,4 @@ static void cp_debug( const char *fmt, ... )
 }
 #endif
 
-
-#ifdef EXEC
-
-#include "cp_patbld.h"
-
-#include <stdio.h>
-#include <string.h>
-
-
-int main( int argc, char **argv ) {
-  (void) argc; (void) argv;
-
-  struct cp_vm vm = {};
-
-  #define APP_INS(BLD,INS,...) \
-    cp_patbld_app_ins( (BLD), \
-        (struct cp_ins){ .code = CP_CODE_ ## INS, __VA_ARGS__ } )
-
-  struct cp_byteset bs_alpha;
-  cp_byteset_enable( & bs_alpha, '_' );
-  for( int c = 'a'; c < 'z'; c ++ ) cp_byteset_enable( & bs_alpha, (uint8_t)c );
-  for( int c = 'A'; c < 'z'; c ++ ) cp_byteset_enable( & bs_alpha, (uint8_t)c );
-
-  struct cp_byteset bs_alnum = bs_alpha;
-  for( int c = '0'; c < '9'; c ++ ) cp_byteset_enable( & bs_alnum, (uint8_t)c );
-
-  struct cp_byteset bs_special;
-  cp_byteset_enable( & bs_special, '.' );
-  cp_byteset_enable( & bs_special, '?' );
-  cp_byteset_enable( & bs_special, '!' );
-  
-  
-  struct cp_patbld *pb = cp_patbld_create( );
-
-  uint16_t bs_special_idx = cp_patbld_app_byteset( pb, bs_special );
-
-  APP_INS( pb, ANY,     .m = 3 );
-  APP_INS( pb, BYTE,    .c = 'l' );
-  APP_INS( pb, CHOICE,  .l = +3 );
-  APP_INS( pb, BYTE,    .c = 'i' );
-  APP_INS( pb, COMMIT,  .l = +2 );
-  APP_INS( pb, BYTE,    .c = 'o' );
-  APP_INS( pb, BYTE,    .c = ' ' );
-  APP_INS( pb, CALL,    .l = +2 );
-  APP_INS( pb, JUMP,    .l = +7 );
-  APP_INS( pb, BYTE,    .c = 'm' );
-  APP_INS( pb, BYTE,    .c = 'e' );
-  APP_INS( pb, BYTE,    .c = 'i' );
-  APP_INS( pb, BYTE,    .c = 'n' );
-  APP_INS( pb, BYTE,    .c = 'e' );
-  APP_INS( pb, RETURN );
-  APP_INS( pb, BYTE,    .c = ' ' );
-  APP_INS( pb, CHOICE,  .l = +7 );
-  APP_INS( pb, BYTE,    .c = 'L' );
-  APP_INS( pb, BYTE,    .c = 'i' );
-  APP_INS( pb, BYTE,    .c = 'e' );
-  APP_INS( pb, BYTE,    .c = 'b' );
-  APP_INS( pb, BYTE,    .c = 'e' );
-  APP_INS( pb, COMMIT,  .l = +8 );
-  APP_INS( pb, BYTE,    .c = 'L' );
-  APP_INS( pb, BYTE,    .c = 'i' );
-  APP_INS( pb, BYTE,    .c = 'e' );
-  APP_INS( pb, BYTE,    .c = 'b' );
-  APP_INS( pb, BYTE,    .c = 's' );
-  APP_INS( pb, BYTE,    .c = 't' );
-  APP_INS( pb, BYTE,    .c = 'e' );
-  APP_INS( pb, BYTESET, .m = bs_special_idx );
-  APP_INS( pb, CHOICE,  .l = +4 );
-  APP_INS( pb, ANY,     .m = 1 );
-  APP_INS( pb, COMMIT,  .l = +1 );
-  APP_INS( pb, FAIL );
-  cp_patbld_export( pb, & vm.ib, & vm.ib_size, & vm.bb, & vm.bb_size );
-  cp_patbld_destroy( pb );
-
-  vm.sub = "Hallo meine Liebe! ";
-  vm.sub_size = strlen( vm.sub );
-
-  if( ! cp_vm_run( & vm ) ) {
-    cp_debug( "pattern failed\n" );
-  }
-}
-
-#endif
 
