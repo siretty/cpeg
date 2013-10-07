@@ -4,7 +4,7 @@
 #include <string.h>
 
 
-#define DEFAULT_CAPACITY 2
+#define DEFAULT_CAPACITY 1
 
 
 struct cp_patbld {
@@ -68,6 +68,11 @@ void cp_patbld_export( struct cp_patbld *s,
   size_t byte_count;
  
   size_t ib_size_export = s->ib_size;
+  if( s->ib_size == 0 ) {
+    s->ib[0].code = CP_CODE_END;
+    ib_size_export = 1;
+  }
+
   if( s->ib[s->ib_size - 1].code != CP_CODE_END ) {
     ib_size_export ++;
   }
@@ -77,10 +82,20 @@ void cp_patbld_export( struct cp_patbld *s,
   *ib = malloc( byte_count );
   memcpy( *ib, s->ib, byte_count );
 
-  byte_count = s->bb_size * sizeof( struct cp_byteset );
-  *bb_size = s->bb_size;
-  *bb = malloc( byte_count );
-  memcpy( *bb, s->bb, byte_count );
+  if( ib_size_export > s->ib_size ) {
+    (*ib)[ib_size_export - 1] = (struct cp_ins){ .code = CP_CODE_END };
+  }
+
+  if( s->bb_size > 0 ) {
+    byte_count = s->bb_size * sizeof( struct cp_byteset );
+    *bb_size = s->bb_size;
+    *bb = malloc( byte_count );
+    memcpy( *bb, s->bb, byte_count );
+  }
+  else {
+    *bb_size = 0;
+    *bb = NULL;
+  }
 }
 
 
@@ -109,16 +124,28 @@ size_t cp_patbld_app_patbld( struct cp_patbld *s, struct cp_patbld *o ) {
   promise_size( (void **)(& s->bb), & s->bb_capacity, s->bb_size + o->bb_size,
       sizeof( struct cp_byteset ) );
 
-  size_t size = o->ib_size;
+  size_t old_ib_size = s->ib_size;
+  size_t old_bb_size = s->bb_size;
+  size_t other_size = o->ib_size;
 
-  if( o->ib[size - 1].code == CP_CODE_END )
-    size --;
+  if( o->ib[other_size - 1].code == CP_CODE_END ) {
+    other_size --;
+  }
+  memmove( & s->ib[s->ib_size], o->ib, other_size * sizeof( struct cp_ins ) );
+  s->ib_size += other_size;
 
-  memmove( & s->ib[s->ib_size], & o->ib, size );
+  memmove( & s->bb[s->bb_size], o->bb, o->bb_size * sizeof( struct cp_byteset ) );
+  s->bb_size += o->bb_size;
 
-  s->ib_size += size;
+  /* correct the byteset indices in the appended part (by applying the old size
+   * of the byteset buffer as an offset */
+  for( size_t i = old_ib_size; i < s->ib_size; i ++ ) {
+    if( s->ib[i].code == CP_CODE_BYTESET ) {
+      s->ib[i].m += old_bb_size;
+    }
+  }
 
-  return size;
+  return other_size;
 }
 
 

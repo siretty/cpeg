@@ -68,7 +68,8 @@ void cp_patbld_set_ins( struct cp_patbld *s, size_t idx, struct cp_ins ins );
  * \brief append another pattern builder.
  *
  * This function appends the contents of another pattern builder. It does _not_
- * copy the END instruction from the other pattern.
+ * copy the END instruction from the other pattern. It does correct the byteset
+ * indices used in the appended pattern.
  *
  * \param s [INOUT] the struct cp_patbld object
  * \param o [IN] the other struct cp_patbld object
